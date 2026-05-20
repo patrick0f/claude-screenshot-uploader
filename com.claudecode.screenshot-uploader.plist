@@ -23,10 +23,7 @@
     
     <key>StandardErrorPath</key>
     <string>/tmp/screenshot-uploader-error.log</string>
-    
-    <key>WorkingDirectory</key>
-    <string>~/</string>
-    
+
     <key>ProcessType</key>
     <string>Background</string>
 </dict>

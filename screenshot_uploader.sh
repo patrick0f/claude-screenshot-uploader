@@ -47,14 +47,20 @@ echo "⏹️  Press Ctrl+C to stop"
 echo ""
 
 # Monitor Screenshots folder for new SCR-*.png files
-/opt/homebrew/bin/fswatch -0 --event Created --event Updated --event MovedTo "$LOCAL_SCREENSHOTS" 2>/dev/null | while read -d "" event; do
-    # Check if the new file matches SCR-*.png pattern
-    if [[ "$event" =~ SCR-[0-9]{8}-[a-z]{4}\.png$ ]]; then
-        filename=$(basename "$event")
+/opt/homebrew/bin/fswatch -0 --event Created --event Updated --event MovedTo --event Renamed "$LOCAL_SCREENSHOTS" 2>/dev/null | while read -d "" event; do
+    filename=$(basename "$event")
+    # Skip dot-files (atomic-write temp files) and non-pngs
+    if [[ "$event" =~ \.png$ ]] && [[ ! "$filename" =~ ^\. ]]; then
         echo "📸 New screenshot detected: $filename"
-        
-        # Wait a moment for file to be completely written
-        sleep 0.5
+
+        # Wait for atomic rename + flush to settle
+        sleep 1
+
+        # Skip if file vanished (e.g. fswatch fired on a temp file that got renamed away)
+        if [ ! -f "$event" ]; then
+            echo "⏭️  File no longer exists, skipping"
+            continue
+        fi
         
         echo "🚀 Uploading to server..."
         
@@ -69,7 +75,7 @@ echo ""
         sleep 1
         
         # Check if upload was successful
-        if [ $rsync_exit -eq 0 ] && echo "$rsync_output" | grep -q "$filename"; then
+        if [ $rsync_exit -eq 0 ]; then
             # Copy server path to clipboard
             server_file_path="$SERVER_PATH/$filename"
             echo -n "$server_file_path" | pbcopy

@@ -233,7 +233,7 @@ If you see "Operation not permitted":
 
 ## 📝 How It Works
 
-1. **File Monitoring**: Uses `fswatch` to monitor the Screenshots directory for new files matching the pattern `SCR-*.png`
+1. **File Monitoring**: Uses `fswatch` to monitor the Screenshots directory for new `.png` files
 
 2. **Automatic Upload**: When a new screenshot is detected, it's immediately uploaded via `rsync` over SSH
 
@@ -242,6 +242,43 @@ If you see "Operation not permitted":
 4. **Status Indication**: An xbar plugin shows real-time status in the menu bar
 
 5. **Background Service**: Runs as a launchd service, starts automatically on login
+
+## ⚠️ Known Issues & Gotchas
+
+This fork addresses several issues encountered when running the original on a fresh macOS setup. If you're forking again or porting this elsewhere, watch for:
+
+### macOS TCC blocks SSH keys in `~/Desktop`, `~/Documents`, `~/Downloads`
+Background processes spawned by `launchd` cannot read TCC-protected directories even if your interactive shell can. If your SSH key lives in one of those locations, the daemon's `ssh` fails with `Load key "...": Operation not permitted`, and uploads error out with `Permission denied (publickey)`.
+
+**Fix:** keep your SSH key in `~/.ssh/` (not TCC-protected) and update `IdentityFile` in `~/.ssh/config`.
+
+### `launchd` does not expand `~` in plist `WorkingDirectory`
+The original plist set `WorkingDirectory` to `~/`, which caused `launchctl load` to fail with exit code 78 (EX_CONFIG) and no log output. launchd treats plist strings as literals — `~` is not a shell, it's a directory named `~`.
+
+**Fix (applied):** removed the `WorkingDirectory` key entirely. The script uses absolute paths, so no cwd is needed.
+
+### Atomic-write temp files trip up fswatch + rsync
+Many screenshot tools (Raycast, and macOS native in some flows) write `.Screenshot...png` first and then atomic-rename to the final name. `fswatch` fires `Created` on the dot-file, the script's `sleep 0.5` elapses, then rsync runs against a file that no longer exists.
+
+**Fix (applied):** skip dot-files in the watch loop, and verify the file still exists before uploading.
+
+### macOS uses U+202F (narrow no-break space) in screenshot filenames
+Screenshots are named like `Screenshot 2026-05-20 at 3.34.53 PM.png` — but the "space" before `PM` is actually a narrow no-break space, not a regular space. `rsync` escapes it as `\#342\#200\#257` in its `-v` output. The original success-check `grep -q "$filename"` therefore never matched, and every upload was reported as a failure (clipboard never updated), even though the file transferred successfully.
+
+**Fix (applied):** trust `rsync`'s exit code only; drop the grep filename match.
+
+### The original filename regex only accepts `SCR-XXXXXXXX-xxxx.png`
+The original watch filter required filenames like `SCR-20260520-abcd.png`, which is not macOS's native screenshot format and not what Raycast/CleanShot produce either. As a result, nothing ever uploaded out of the box.
+
+**Fix (applied):** relaxed the filter to any `.png`. Combined with the dot-file skip above, this handles macOS native, Raycast, and most other tools.
+
+### Third-party tools may intercept Cmd+Shift+4
+Raycast, CleanShot X, Shottr, and similar tools can bind to the screenshot hotkey system-wide. When they do, native `screencapture` never runs and nothing lands in `~/Screenshots`.
+
+**Fix:** either disable the third-party tool's screenshot hotkey, or configure it to save files to `~/Screenshots` (and make sure it's set to "save to file", not "copy to clipboard only").
+
+### EC2 instances with rotating hostnames
+If you're uploading to an EC2 instance that gets a new public hostname after each stop/start, hard-coding the hostname in `SERVER_HOST` means you'd have to edit the config daily. Use an `~/.ssh/config` alias instead — set `SERVER_HOST` to the alias name (e.g. `Patrick`), and SSH config resolution will pick up the current hostname automatically.
 
 ## 🤝 Contributing
 
